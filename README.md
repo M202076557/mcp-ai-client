@@ -75,11 +75,6 @@ curl -X POST "http://localhost:8080/api/v1/ai/smart-query" \
 curl -X POST "http://localhost:8080/api/v1/ai/smart-query" \
   -H "Content-Type: application/json" \
   -d '{"prompt": "SELECT * FROM mcp_user"}' | jq .
-
-# 带分析模式查询
-curl -X POST "http://localhost:8080/api/v1/ai/smart-query" \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "查询用户数据", "analysis_mode": "fast"}' | jq .
 ```
 
 #### 4. 数据分析
