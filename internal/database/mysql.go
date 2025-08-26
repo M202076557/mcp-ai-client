@@ -66,12 +66,15 @@ func (c *MySQLClient) Close() error {
 	return nil
 }
 
-// QueryUser 查询mcp_user表
-func (c *MySQLClient) QueryUser() ([]map[string]interface{}, error) {
-	query := "SELECT * FROM `mcp_user` LIMIT 100"
+// QueryUser 查询指定用户表
+func (c *MySQLClient) QueryUser(tableName string) ([]map[string]interface{}, error) {
+	if tableName == "" {
+		tableName = "mcp_user" // 默认表名
+	}
+	query := fmt.Sprintf("SELECT * FROM `%s` LIMIT 100", tableName)
 	rows, err := c.db.Query(query)
 	if err != nil {
-		return nil, fmt.Errorf("查询mcp_user表失败: %v", err)
+		return nil, fmt.Errorf("查询%s表失败: %v", tableName, err)
 	}
 	defer rows.Close()
 
@@ -115,14 +118,17 @@ func (c *MySQLClient) QueryUser() ([]map[string]interface{}, error) {
 	return results, nil
 }
 
-// QueryUserByID 根据ID查询mcp_user表
-func (c *MySQLClient) QueryUserByID(id int) (map[string]interface{}, error) {
-	query := "SELECT * FROM `mcp_user` WHERE id = ?"
+// QueryUserByID 根据ID查询指定用户表
+func (c *MySQLClient) QueryUserByID(id int, tableName string) (map[string]interface{}, error) {
+	if tableName == "" {
+		tableName = "mcp_user" // 默认表名
+	}
+	query := fmt.Sprintf("SELECT * FROM `%s` WHERE id = ?", tableName)
 	row := c.db.QueryRow(query, id)
 
 	// 对于单行查询，我们需要知道列的结构
 	// 这里我们使用一个通用的查询来获取列信息
-	columnsQuery := "SELECT * FROM `mcp_user` LIMIT 1"
+	columnsQuery := fmt.Sprintf("SELECT * FROM `%s` LIMIT 1", tableName)
 	columnsRow, err := c.db.Query(columnsQuery)
 	if err != nil {
 		return nil, fmt.Errorf("获取列信息失败: %v", err)
@@ -160,23 +166,29 @@ func (c *MySQLClient) QueryUserByID(id int) (map[string]interface{}, error) {
 	return result, nil
 }
 
-// GetUserCount 获取mcp_user表记录数
-func (c *MySQLClient) GetUserCount() (int, error) {
-	query := "SELECT COUNT(*) FROM `mcp_user`"
+// GetUserCount 获取指定用户表记录数
+func (c *MySQLClient) GetUserCount(tableName string) (int, error) {
+	if tableName == "" {
+		tableName = "mcp_user" // 默认表名
+	}
+	query := fmt.Sprintf("SELECT COUNT(*) FROM `%s`", tableName)
 	var count int
 	err := c.db.QueryRow(query).Scan(&count)
 	if err != nil {
-		return 0, fmt.Errorf("获取mcp_user表记录数失败: %v", err)
+		return 0, fmt.Errorf("获取%s表记录数失败: %v", tableName, err)
 	}
 	return count, nil
 }
 
-// GetUserSchema 获取mcp_user表结构
-func (c *MySQLClient) GetUserSchema() ([]map[string]interface{}, error) {
-	query := "DESCRIBE `mcp_user`"
+// GetUserSchema 获取指定用户表结构
+func (c *MySQLClient) GetUserSchema(tableName string) ([]map[string]interface{}, error) {
+	if tableName == "" {
+		tableName = "mcp_user" // 默认表名
+	}
+	query := fmt.Sprintf("DESCRIBE `%s`", tableName)
 	rows, err := c.db.Query(query)
 	if err != nil {
-		return nil, fmt.Errorf("获取mcp_user表结构失败: %v", err)
+		return nil, fmt.Errorf("获取%s表结构失败: %v", tableName, err)
 	}
 	defer rows.Close()
 

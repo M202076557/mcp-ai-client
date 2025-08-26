@@ -11,14 +11,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// MCPClient MCP客户端
+// MCPClient MCP客户端 - 专门用于AI工具演示
 type MCPClient struct {
 	conn    *websocket.Conn
 	timeout time.Duration
-	// 添加配置信息
-	dbAlias  string
-	dbDriver string
-	dbDSN    string
 }
 
 // MCPMessage MCP消息结构
@@ -56,7 +52,7 @@ type Content struct {
 }
 
 // NewMCPClient 创建MCP客户端
-func NewMCPClient(serverURL string, timeout time.Duration, dbAlias, dbDriver, dbDSN string) (*MCPClient, error) {
+func NewMCPClient(serverURL string, timeout time.Duration) (*MCPClient, error) {
 	dialer := websocket.Dialer{}
 	conn, _, err := dialer.Dial(serverURL, nil)
 	if err != nil {
@@ -65,11 +61,8 @@ func NewMCPClient(serverURL string, timeout time.Duration, dbAlias, dbDriver, db
 
 	log.Printf("MCP服务器连接成功: %s", serverURL)
 	return &MCPClient{
-		conn:     conn,
-		timeout:  timeout,
-		dbAlias:  dbAlias,
-		dbDriver: dbDriver,
-		dbDSN:    dbDSN,
+		conn:    conn,
+		timeout: timeout,
 	}, nil
 }
 
@@ -270,97 +263,116 @@ func (c *MCPClient) sendMessage(ctx context.Context, msg MCPMessage) (*MCPMessag
 	}
 }
 
-// QueryUserViaMCP 通过MCP查询mcp_user表
-func (c *MCPClient) QueryUserViaMCP(ctx context.Context) (string, error) {
-	// 首先建立数据库连接
-	connectArgs := map[string]interface{}{
-		"driver": c.dbDriver,
-		"dsn":    c.dbDSN,
-		"alias":  c.dbAlias,
+// AI工具方法 - 集成5种AI工具功能 (5.1-5.5)
+
+// CallAIChat 调用AI聊天工具 (5.1)
+func (c *MCPClient) CallAIChat(ctx context.Context, prompt string, provider string, model string) (string, error) {
+	args := map[string]interface{}{
+		"prompt": prompt,
 	}
 
-	_, err := c.CallTool(ctx, "db_connect", connectArgs)
+	// 添加可选参数
+	if provider != "" {
+		args["provider"] = provider
+	}
+	if model != "" {
+		args["model"] = model
+	}
+
+	result, err := c.CallTool(ctx, "ai_chat", args)
 	if err != nil {
-		return "", fmt.Errorf("MCP数据库连接失败: %v", err)
-	}
-
-	// 然后执行查询
-	queryArgs := map[string]interface{}{
-		"alias": c.dbAlias, // 使用数据库连接别名
-		"sql":   "SELECT * FROM `mcp_user` LIMIT 100",
-	}
-
-	result, err := c.CallTool(ctx, "db_query", queryArgs)
-	if err != nil {
-		return "", fmt.Errorf("MCP查询mcp_user表失败: %v", err)
+		return "", fmt.Errorf("AI聊天调用失败: %v", err)
 	}
 
 	if len(result.Content) == 0 {
-		return "", fmt.Errorf("MCP查询结果为空")
+		return "", fmt.Errorf("AI聊天结果为空")
 	}
 
 	return result.Content[0].Text, nil
 }
 
-// QueryUserByIDViaMCP 通过MCP根据ID查询mcp_user表
-func (c *MCPClient) QueryUserByIDViaMCP(ctx context.Context, id int) (string, error) {
-	// 首先建立数据库连接
-	connectArgs := map[string]interface{}{
-		"driver": c.dbDriver,
-		"dsn":    c.dbDSN,
-		"alias":  c.dbAlias,
+// CallAIFileManager 调用AI文件管理工具 (5.2)
+func (c *MCPClient) CallAIFileManager(ctx context.Context, instruction string, targetPath string, operationMode string) (string, error) {
+	args := map[string]interface{}{
+		"instruction":    instruction,
+		"target_path":    targetPath,
+		"operation_mode": operationMode,
 	}
 
-	_, err := c.CallTool(ctx, "db_connect", connectArgs)
+	result, err := c.CallTool(ctx, "ai_file_manager", args)
 	if err != nil {
-		return "", fmt.Errorf("MCP数据库连接失败: %v", err)
-	}
-
-	// 然后执行查询
-	queryArgs := map[string]interface{}{
-		"alias": c.dbAlias, // 使用数据库连接别名
-		"sql":   fmt.Sprintf("SELECT * FROM `mcp_user` WHERE id = %d", id),
-	}
-
-	result, err := c.CallTool(ctx, "db_query", queryArgs)
-	if err != nil {
-		return "", fmt.Errorf("MCP查询mcp_user表失败: %v", err)
+		return "", fmt.Errorf("AI文件管理调用失败: %v", err)
 	}
 
 	if len(result.Content) == 0 {
-		return "", fmt.Errorf("MCP查询结果为空")
+		return "", fmt.Errorf("AI文件管理结果为空")
 	}
 
 	return result.Content[0].Text, nil
 }
 
-// GetMenuCountViaMCP 通过MCP获取menu表记录数
-func (c *MCPClient) GetMenuCountViaMCP(ctx context.Context) (string, error) {
-	// 首先建立数据库连接
-	connectArgs := map[string]interface{}{
-		"driver": c.dbDriver,
-		"dsn":    c.dbDSN,
-		"alias":  c.dbAlias,
+// CallAIDataProcessor 调用AI数据处理工具 (5.3)
+func (c *MCPClient) CallAIDataProcessor(ctx context.Context, instruction string, inputData string, dataType string, outputFormat string, operationMode string) (string, error) {
+	args := map[string]interface{}{
+		"instruction":    instruction,
+		"input_data":     inputData,
+		"data_type":      dataType,
+		"output_format":  outputFormat,
+		"operation_mode": operationMode,
 	}
 
-	_, err := c.CallTool(ctx, "db_connect", connectArgs)
+	result, err := c.CallTool(ctx, "ai_data_processor", args)
 	if err != nil {
-		return "", fmt.Errorf("MCP数据库连接失败: %v", err)
-	}
-
-	// 然后执行查询
-	queryArgs := map[string]interface{}{
-		"alias": c.dbAlias, // 使用数据库连接别名
-		"sql":   "SELECT COUNT(*) as count FROM menu",
-	}
-
-	result, err := c.CallTool(ctx, "db_query", queryArgs)
-	if err != nil {
-		return "", fmt.Errorf("MCP查询menu表记录数失败: %v", err)
+		return "", fmt.Errorf("AI数据处理调用失败: %v", err)
 	}
 
 	if len(result.Content) == 0 {
-		return "", fmt.Errorf("MCP查询结果为空")
+		return "", fmt.Errorf("AI数据处理结果为空")
+	}
+
+	return result.Content[0].Text, nil
+}
+
+// CallAIAPIClient 调用AI网络请求工具 (5.4)
+func (c *MCPClient) CallAIAPIClient(ctx context.Context, instruction string, baseURL string, requestMode string, responseAnalysis bool) (string, error) {
+	args := map[string]interface{}{
+		"instruction":       instruction,
+		"base_url":          baseURL,
+		"request_mode":      requestMode,
+		"response_analysis": responseAnalysis,
+	}
+
+	result, err := c.CallTool(ctx, "ai_api_client", args)
+	if err != nil {
+		return "", fmt.Errorf("AI网络请求调用失败: %v", err)
+	}
+
+	if len(result.Content) == 0 {
+		return "", fmt.Errorf("AI网络请求结果为空")
+	}
+
+	return result.Content[0].Text, nil
+}
+
+// CallAIQueryWithAnalysis 调用AI数据库查询工具 (5.5)
+func (c *MCPClient) CallAIQueryWithAnalysis(ctx context.Context, description string, analysisType string, tableName string) (string, error) {
+	args := map[string]interface{}{
+		"description":   description,
+		"analysis_type": analysisType,
+	}
+
+	// 添加可选参数
+	if tableName != "" {
+		args["table_name"] = tableName
+	}
+
+	result, err := c.CallTool(ctx, "ai_query_with_analysis", args)
+	if err != nil {
+		return "", fmt.Errorf("AI数据库查询调用失败: %v", err)
+	}
+
+	if len(result.Content) == 0 {
+		return "", fmt.Errorf("AI数据库查询结果为空")
 	}
 
 	return result.Content[0].Text, nil

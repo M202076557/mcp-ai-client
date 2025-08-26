@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"mcp-ai-client/internal/database"
 	"mcp-ai-client/internal/mcp"
+	"mcp-ai-client/internal/service"
 	"net/http"
 	"strconv"
 	"time"
@@ -20,19 +22,31 @@ type AIConfig struct {
 	IncludeLanguageInstruction bool
 }
 
-// Handlers API处理器
+// DatabaseConfig 数据库配置
+type DatabaseConfig struct {
+	UserTable string
+}
+
+// Handlers API处理器 - 统一处理传统API和MCP API
 type Handlers struct {
 	mysqlClient *database.MySQLClient
 	mcpClient   *mcp.MCPClient
+	userService *service.UserService
 	aiConfig    *AIConfig
+	dbConfig    *DatabaseConfig
 }
 
 // NewHandlers 创建API处理器
-func NewHandlers(mysqlClient *database.MySQLClient, mcpClient *mcp.MCPClient, aiConfig *AIConfig) *Handlers {
+func NewHandlers(mysqlClient *database.MySQLClient, mcpClient *mcp.MCPClient, aiConfig *AIConfig, dbConfig *DatabaseConfig) *Handlers {
+	// 创建服务层
+	userService := service.NewUserService(mysqlClient, dbConfig.UserTable)
+
 	return &Handlers{
 		mysqlClient: mysqlClient,
 		mcpClient:   mcpClient,
+		userService: userService,
 		aiConfig:    aiConfig,
+		dbConfig:    dbConfig,
 	}
 }
 
@@ -52,6 +66,429 @@ func (h *Handlers) getLanguageInstruction() string {
 	default:
 		return "请用中文回答。"
 	}
+}
+
+// ===== 传统API处理器 =====
+
+// GetUsersTraditional 传统方式获取用户列表
+func (h *Handlers) GetUsersTraditional(c *gin.Context) {
+	if h.userService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "用户服务不可用",
+		})
+		return
+	}
+
+	users, err := h.userService.GetAllUsers()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":     err.Error(),
+			"method":    "traditional",
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":      users,
+		"count":     len(users),
+		"method":    "traditional_database",
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
+}
+
+// GetUserByIDTraditional 传统方式根据ID获取用户
+func (h *Handlers) GetUserByIDTraditional(c *gin.Context) {
+	if h.userService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "用户服务不可用",
+		})
+		return
+	}
+
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid user ID",
+		})
+		return
+	}
+
+	user, err := h.userService.GetUserByID(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":     err.Error(),
+			"method":    "traditional",
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":      user,
+		"method":    "traditional_database",
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
+}
+
+// SearchUsersTraditional 传统方式搜索用户
+func (h *Handlers) SearchUsersTraditional(c *gin.Context) {
+	if h.userService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "用户服务不可用",
+		})
+		return
+	}
+
+	keyword := c.Query("keyword")
+	if keyword == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "keyword parameter is required",
+		})
+		return
+	}
+
+	users, err := h.userService.SearchUsers(keyword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":     err.Error(),
+			"method":    "traditional",
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":      users,
+		"count":     len(users),
+		"keyword":   keyword,
+		"method":    "traditional_search",
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
+}
+
+// GetUserStatsTraditional 传统方式获取用户统计
+func (h *Handlers) GetUserStatsTraditional(c *gin.Context) {
+	if h.userService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "用户服务不可用",
+		})
+		return
+	}
+
+	// 从查询参数获取表名，必须指定表名
+	tableName := c.Query("table")
+	if tableName == "" {
+		c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":     "表名参数不能为空，请使用 ?table=表名 指定要查询的表",
+			"method":    "traditional",
+			"timestamp": time.Now().Format(time.RFC3339),
+			"example":   "?table=demo_user 或 ?table=mcp_user",
+		})
+		return
+	}
+
+	stats, err := h.userService.GetUserStatsWithTable(tableName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":     err.Error(),
+			"method":    "traditional",
+			"table":     tableName,
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// ===== MCP增强API处理器 =====
+
+// MCPChatHandler MCP AI对话处理器
+func (h *Handlers) MCPChatHandler(c *gin.Context) {
+	if h.mcpClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "MCP服务不可用",
+		})
+		return
+	}
+
+	var request struct {
+		Prompt   string `json:"prompt" binding:"required"`
+		Provider string `json:"provider,omitempty"`
+		Model    string `json:"model,omitempty"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	// 添加语言指令
+	prompt := h.getLanguageInstruction() + " " + request.Prompt
+
+	// 使用配置中的默认值
+	provider := request.Provider
+	if provider == "" {
+		provider = h.aiConfig.DefaultProvider
+	}
+	model := request.Model
+	if model == "" {
+		model = h.aiConfig.DefaultModel
+	}
+
+	// 使用MCP客户端直接调用AI工具
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	args := map[string]interface{}{
+		"prompt": prompt,
+	}
+	if provider != "" {
+		args["provider"] = provider
+	}
+	if model != "" {
+		args["model"] = model
+	}
+
+	result, err := h.mcpClient.CallTool(ctx, "ai_chat", args)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":     err.Error(),
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+		return
+	}
+
+	// 解析结果
+	var responseText string
+	if len(result.Content) > 0 {
+		responseText = result.Content[0].Text
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"result":    responseText,
+		"provider":  provider,
+		"model":     model,
+		"method":    "mcp_ai_chat",
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
+}
+
+// MCPAnalyzeHandler MCP AI数据分析处理器
+func (h *Handlers) MCPAnalyzeHandler(c *gin.Context) {
+	if h.mcpClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "MCP服务不可用",
+		})
+		return
+	}
+
+	analysisType := c.Query("type")
+	if analysisType == "" {
+		analysisType = "general_analysis"
+	}
+
+	// 获取传统数据进行分析
+	var inputData string
+	if h.userService != nil {
+		if users, err := h.userService.GetAllUsers(); err == nil {
+			inputData = fmt.Sprintf("用户数据总数: %d\n", len(users))
+			for i, user := range users {
+				if i < 10 { // 只取前10个用户作为样本
+					inputData += fmt.Sprintf("用户%d: 姓名=%s, 邮箱=%s, 年龄=%d\n",
+						user.ID, user.Name, user.Email, user.Age)
+				}
+			}
+		}
+	}
+
+	if inputData == "" {
+		inputData = "暂无用户数据"
+	}
+
+	// 使用MCP客户端直接调用AI数据分析工具
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	args := map[string]interface{}{
+		"data":          inputData,
+		"analysis_type": analysisType,
+		"context":       fmt.Sprintf("请分析这些用户数据，重点关注%s", analysisType),
+	}
+
+	result, err := h.mcpClient.CallTool(ctx, "ai_analyze_data", args)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":     err.Error(),
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+		return
+	}
+
+	// 解析结果
+	var responseText string
+	if len(result.Content) > 0 {
+		responseText = result.Content[0].Text
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"result":        responseText,
+		"analysis_type": analysisType,
+		"method":        "mcp_ai_analysis",
+		"timestamp":     time.Now().Format(time.RFC3339),
+	})
+}
+
+// MCPQueryHandler MCP AI查询处理器
+func (h *Handlers) MCPQueryHandler(c *gin.Context) {
+	if h.mcpClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "MCP服务不可用",
+		})
+		return
+	}
+
+	var request struct {
+		Description string `json:"description" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	// 使用MCP客户端直接调用AI查询分析工具
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	args := map[string]interface{}{
+		"description":   request.Description,
+		"analysis_type": "smart_query",
+		"table_name":    "users",
+	}
+
+	result, err := h.mcpClient.CallTool(ctx, "ai_query_with_analysis", args)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":     err.Error(),
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+		return
+	}
+
+	// 解析结果
+	var responseText string
+	if len(result.Content) > 0 {
+		responseText = result.Content[0].Text
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"result":      responseText,
+		"description": request.Description,
+		"method":      "mcp_ai_query",
+		"timestamp":   time.Now().Format(time.RFC3339),
+	})
+}
+
+// ===== 比较和能力展示处理器 =====
+
+// CompareServicesHandler 比较传统服务与MCP服务
+func (h *Handlers) CompareServicesHandler(c *gin.Context) {
+	result := map[string]interface{}{
+		"comparison_time": time.Now().Format(time.RFC3339),
+		"services":        make(map[string]interface{}),
+	}
+
+	// 传统服务测试
+	traditionalResult := map[string]interface{}{
+		"service_name": "Traditional User Service",
+		"available":    h.userService != nil,
+	}
+
+	if h.userService != nil {
+		start := time.Now()
+		users, err := h.userService.GetAllUsers()
+		duration := time.Since(start)
+
+		traditionalResult["success"] = err == nil
+		traditionalResult["response_time"] = duration.String()
+		if err == nil {
+			traditionalResult["data_count"] = len(users)
+		} else {
+			traditionalResult["error"] = err.Error()
+		}
+	}
+
+	// MCP服务测试
+	mcpResult := map[string]interface{}{
+		"service_name": "MCP AI Service",
+		"available":    h.mcpClient != nil,
+	}
+
+	if h.mcpClient != nil {
+		mcpResult["available"] = true
+		mcpResult["features"] = []string{"ai_chat", "ai_data_analysis", "ai_query_analysis", "ai_tools"}
+		mcpResult["description"] = "基于MCP协议的AI增强服务"
+	} else {
+		mcpResult["error"] = "MCP服务不可用"
+	}
+
+	result["services"].(map[string]interface{})["traditional"] = traditionalResult
+	result["services"].(map[string]interface{})["mcp"] = mcpResult
+
+	// 推荐
+	recommendation := "建议："
+	if h.userService != nil && h.mcpClient != nil {
+		recommendation += "双服务可用，可根据需求选择传统API（快速）或MCP API（智能）"
+	} else if h.userService != nil {
+		recommendation += "仅传统服务可用，建议启用MCP服务获得AI增强功能"
+	} else if h.mcpClient != nil {
+		recommendation += "仅MCP服务可用，数据库连接可能有问题"
+	} else {
+		recommendation += "所有服务均不可用，请检查配置"
+	}
+
+	result["recommendation"] = recommendation
+
+	c.JSON(http.StatusOK, result)
+}
+
+// GetServiceCapabilitiesHandler 获取服务能力
+func (h *Handlers) GetServiceCapabilitiesHandler(c *gin.Context) {
+	capabilities := map[string]interface{}{
+		"timestamp": time.Now().Format(time.RFC3339),
+		"services":  make(map[string]interface{}),
+	}
+
+	// 传统服务能力
+	if h.userService != nil {
+		capabilities["services"].(map[string]interface{})["traditional"] = map[string]interface{}{
+			"name":       "Traditional Database Service",
+			"available":  true,
+			"features":   []string{"用户查询", "搜索", "统计", "CRUD操作"},
+			"advantages": []string{"速度快", "稳定", "资源消耗少"},
+			"best_for":   []string{"高频查询", "实时数据", "简单操作"},
+		}
+	}
+
+	// MCP服务能力
+	if h.mcpClient != nil {
+		capabilities["services"].(map[string]interface{})["mcp"] = map[string]interface{}{
+			"name":       "MCP AI Service",
+			"available":  true,
+			"features":   []string{"ai_chat", "ai_data_analysis", "ai_query_analysis", "ai_tools"},
+			"advantages": []string{"AI增强", "智能分析", "自然语言处理"},
+			"best_for":   []string{"复杂查询", "数据分析", "智能交互"},
+		}
+	}
+
+	c.JSON(http.StatusOK, capabilities)
 }
 
 // enhancePromptWithLanguage 为提示词添加语言指令
@@ -91,15 +528,28 @@ func (h *Handlers) HealthCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// QueryUserDirect 直接查询MySQL mcp_user表
+// QueryUserDirect 直接查询MySQL用户表
 func (h *Handlers) QueryUserDirect(c *gin.Context) {
 	start := time.Now()
 
-	userData, err := h.mysqlClient.QueryUser()
+	// 从查询参数获取表名，必须指定表名
+	tableName := c.Query("table")
+	if tableName == "" {
+		c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":     "表名参数不能为空，请使用 ?table=表名 指定要查询的表",
+			"method":    "direct_mysql",
+			"timestamp": time.Now().Format(time.RFC3339),
+			"example":   "?table=demo_user 或 ?table=mcp_user",
+		})
+		return
+	}
+
+	userData, err := h.mysqlClient.QueryUser(tableName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"error":     err.Error(),
 			"method":    "direct_mysql",
+			"table":     tableName,
 			"timestamp": time.Now().Format(time.RFC3339),
 		})
 		return
@@ -109,12 +559,14 @@ func (h *Handlers) QueryUserDirect(c *gin.Context) {
 	c.JSON(http.StatusOK, map[string]interface{}{
 		"data":          userData,
 		"method":        "direct_mysql",
+		"table":         tableName,
+		"count":         len(userData),
 		"response_time": responseTime.String(),
 		"timestamp":     time.Now().Format(time.RFC3339),
 	})
 }
 
-// QueryUserByIDDirect 直接根据ID查询MySQL mcp_user表
+// QueryUserByIDDirect 直接根据ID查询MySQL用户表
 func (h *Handlers) QueryUserByIDDirect(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -127,12 +579,17 @@ func (h *Handlers) QueryUserByIDDirect(c *gin.Context) {
 		return
 	}
 
+	// 从查询参数获取表名，默认使用配置中的表名
+	tableName := c.DefaultQuery("table", h.dbConfig.UserTable)
+
 	start := time.Now()
-	userData, err := h.mysqlClient.QueryUserByID(id)
+	userData, err := h.mysqlClient.QueryUserByID(id, tableName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"error":     err.Error(),
 			"method":    "direct_mysql",
+			"table":     tableName,
+			"id":        id,
 			"timestamp": time.Now().Format(time.RFC3339),
 		})
 		return
@@ -142,88 +599,23 @@ func (h *Handlers) QueryUserByIDDirect(c *gin.Context) {
 	c.JSON(http.StatusOK, map[string]interface{}{
 		"data":          userData,
 		"method":        "direct_mysql",
+		"table":         tableName,
+		"id":            id,
 		"response_time": responseTime.String(),
 		"timestamp":     time.Now().Format(time.RFC3339),
 	})
 }
 
-// QueryUserViaMCP 通过MCP查询mcp_user表
+// QueryUserViaMCP 通过MCP查询mcp_user表 (已简化，使用直接数据库查询)
 func (h *Handlers) QueryUserViaMCP(c *gin.Context) {
-	if h.mcpClient == nil {
-		c.JSON(http.StatusServiceUnavailable, map[string]interface{}{
-			"error":     "MCP服务不可用",
-			"method":    "mcp_service",
-			"timestamp": time.Now().Format(time.RFC3339),
-		})
-		return
-	}
-
-	start := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	result, err := h.mcpClient.QueryUserViaMCP(ctx)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"error":     err.Error(),
-			"method":    "mcp_service",
-			"timestamp": time.Now().Format(time.RFC3339),
-		})
-		return
-	}
-
-	responseTime := time.Since(start)
-	c.JSON(http.StatusOK, map[string]interface{}{
-		"data":          result,
-		"method":        "mcp_service",
-		"response_time": responseTime.String(),
-		"timestamp":     time.Now().Format(time.RFC3339),
-	})
+	// 由于MCP客户端现在专注于AI工具，这里使用直接数据库查询
+	h.QueryUserDirect(c)
 }
 
-// QueryUserByIDViaMCP 通过MCP根据ID查询mcp_user表
+// QueryUserByIDViaMCP 通过MCP根据ID查询mcp_user表 (已简化，使用直接数据库查询)
 func (h *Handlers) QueryUserByIDViaMCP(c *gin.Context) {
-	if h.mcpClient == nil {
-		c.JSON(http.StatusServiceUnavailable, map[string]interface{}{
-			"error":     "MCP服务不可用",
-			"method":    "mcp_service",
-			"timestamp": time.Now().Format(time.RFC3339),
-		})
-		return
-	}
-
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error":     "无效的ID参数",
-			"method":    "mcp_service",
-			"timestamp": time.Now().Format(time.RFC3339),
-		})
-		return
-	}
-
-	start := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	result, err := h.mcpClient.QueryUserByIDViaMCP(ctx, id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"error":     err.Error(),
-			"method":    "mcp_service",
-			"timestamp": time.Now().Format(time.RFC3339),
-		})
-		return
-	}
-
-	responseTime := time.Since(start)
-	c.JSON(http.StatusOK, map[string]interface{}{
-		"data":          result,
-		"method":        "mcp_service",
-		"response_time": responseTime.String(),
-		"timestamp":     time.Now().Format(time.RFC3339),
-	})
+	// 由于MCP客户端现在专注于AI工具，这里使用直接数据库查询
+	h.QueryUserByIDDirect(c)
 }
 
 // AIGenerateSQL 通过AI生成SQL查询
@@ -359,7 +751,7 @@ func (h *Handlers) CompareQueryMethods(c *gin.Context) {
 	// 并行执行三种查询方式
 	go func() {
 		start := time.Now()
-		userData, err := h.mysqlClient.QueryUser()
+		userData, err := h.mysqlClient.QueryUser(h.dbConfig.UserTable)
 		responseTime := time.Since(start)
 
 		result := MethodResult{
@@ -379,18 +771,17 @@ func (h *Handlers) CompareQueryMethods(c *gin.Context) {
 		directChan <- result
 	}()
 
-	// MCP查询（如果可用）
+	// MCP查询（如果可用）- 已简化，使用数据库直接查询
 	if h.mcpClient != nil {
 		go func() {
 			start := time.Now()
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
 
-			result, err := h.mcpClient.QueryUserViaMCP(ctx)
+			// 使用直接数据库查询模拟MCP结果
+			userData, err := h.mysqlClient.QueryUser(h.dbConfig.UserTable)
 			responseTime := time.Since(start)
 
 			mcpResult := MethodResult{
-				Method:       "mcp_service",
+				Method:       "mcp_service_simulated",
 				Success:      err == nil,
 				ResponseTime: responseTime,
 				Error:        "",
@@ -398,8 +789,7 @@ func (h *Handlers) CompareQueryMethods(c *gin.Context) {
 			}
 
 			if err == nil {
-				// 简单估算数据量（基于返回字符串长度）
-				mcpResult.DataCount = len(result) / 100 // 粗略估算
+				mcpResult.DataCount = len(userData)
 			} else {
 				mcpResult.Error = err.Error()
 			}
@@ -610,7 +1000,7 @@ func (h *Handlers) GetPerformanceStats(c *gin.Context) {
 
 	// 检查MySQL连接状态
 	mysqlStatus := "connected"
-	if _, err := h.mysqlClient.GetUserCount(); err != nil {
+	if _, err := h.mysqlClient.GetUserCount(h.dbConfig.UserTable); err != nil {
 		mysqlStatus = "disconnected"
 	}
 
@@ -631,11 +1021,11 @@ func (h *Handlers) GetPerformanceStats(c *gin.Context) {
 	var userCount int
 	var schemaInfo []map[string]interface{}
 
-	if count, err := h.mysqlClient.GetUserCount(); err == nil {
+	if count, err := h.mysqlClient.GetUserCount(h.dbConfig.UserTable); err == nil {
 		userCount = count
 	}
 
-	if schema, err := h.mysqlClient.GetUserSchema(); err == nil {
+	if schema, err := h.mysqlClient.GetUserSchema(h.dbConfig.UserTable); err == nil {
 		schemaInfo = schema
 	}
 

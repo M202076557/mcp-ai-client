@@ -1,113 +1,147 @@
 # MCP AI Client
 
-MCP (Model Context Protocol) AI 工具的 HTTP API 客户端，提供 RESTful 接口访问 7 个 AI 工具。
+专门用于演示 MCP AI Server 中 AI 工具功能的客户端程序。通过 MCP 协议与服务器通信，展示 5 种 AI 增强工具的实际应用。
+
+## 🎯 项目概述
+
+这个客户端专门展示以下 AI 工具：
+
+- **AI 对话** (ai_chat): 基础 AI 聊天功能
+- **AI 文件管理** (ai_file_manager): 智能文件系统操作
+- **AI 数据处理** (ai_data_processor): JSON/CSV 数据解析和转换
+- **AI 网络请求** (ai_api_client): 智能 HTTP API 调用
+- **AI 数据库查询** (ai_query_with_analysis): 数据库查询+AI 分析
 
 ## 🚀 快速开始
 
-### 前置要求
+### 1. 启动 MCP AI Server
 
-- Go 1.21+
-- MySQL 5.7+
-- MCP 服务器 (mcp-ai-server)
+```bash
+cd /path/to/mcp-ai-server
+./bin/mcp-server -mode=websocket -port=8080
+```
 
-### 配置和启动
+### 2. 构建并运行客户端
 
-1. 配置数据库 `configs/config.yaml`：
+```bash
+# 构建AI客户端
+make ai-client
+
+# 运行所有AI工具演示
+make demo
+```
+
+## �️ 使用方法
+
+### 完整演示
+
+```bash
+# 运行所有AI工具演示
+./bin/ai-client demo
+```
+
+### 单独测试各工具
+
+```bash
+# AI对话演示
+./bin/ai-client chat
+
+# AI文件管理演示
+./bin/ai-client file
+
+# AI数据处理演示
+./bin/ai-client data
+
+# AI网络请求演示
+./bin/ai-client api
+
+# AI数据库查询演示
+./bin/ai-client db
+```
+
+## 📁 项目结构
+
+```
+mcp-ai-client/
+├── cmd/
+│   └── ai-client/          # AI工具演示客户端
+│       └── main.go
+├── internal/
+│   └── mcp/
+│       └── ai_client.go    # AI专用MCP客户端
+├── configs/
+│   └── ai-config.yaml     # 客户端配置
+├── test/
+│   └── docs/
+│       └── AI_TOOLS_TEST_GUIDE.md  # 完整测试指南
+├── Makefile               # 构建和演示命令
+└── README.md             # 本文档
+```
+
+## ⚙️ 配置
+
+编辑 `configs/ai-config.yaml`：
 
 ```yaml
-database:
-  mysql:
-    host: "localhost"
-    port: 3306
-    username: "root"
-    password: "root"
-    database: "mcp_test"
+# MCP服务器配置
+mcp:
+  server_url: "ws://localhost:8080/ws"
+  timeout: 30s
+
+# AI工具配置
+ai:
+  response_language: "zh-CN"
+  default_provider: "ollama"
+  default_model: "llama2:7b"
 ```
 
-2. 构建并运行：
+## 🧪 测试
+
+详细测试指南请参考：[test/docs/AI_TOOLS_TEST_GUIDE.md](test/docs/AI_TOOLS_TEST_GUIDE.md)
+
+### 快速测试
 
 ```bash
-make build && make run
+# 检查构建是否成功
+make ai-client
+
+# 运行完整演示（需要mcp-ai-server运行）
+make demo
+
+# 运行自动化测试
+cd test && bash auto_test.sh
 ```
 
-## 📡 API 接口
-
-### 基础查询
+## 🔧 构建命令
 
 ```bash
-# 健康检查
-curl http://localhost:8080/health | jq .
-
-# 直接MySQL查询
-curl http://localhost:8080/api/v1/user | jq .
-
-# MCP查询
-curl http://localhost:8080/api/v1/mcp/user | jq .
+make help          # 显示帮助
+make ai-client      # 构建AI客户端
+make demo           # 运行演示
+make clean          # 清理构建文件
+make deps           # 安装依赖
 ```
 
-### AI 工具 (7 个递增复杂度)
+## � 要求
 
-#### 1. AI 对话
+- Go 1.21+
+- MCP AI Server 运行中
+- 网络连接（部分 AI 工具需要）
 
-```bash
-curl -X POST "http://localhost:8080/api/v1/ai/chat" \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "Hello, what is this system?"}' | jq .
-```
+## 🚨 注意事项
 
-#### 2. SQL 生成
+1. 确保 `mcp-ai-server` 在运行并监听端口 8080
+2. 某些 AI 工具需要配置相应的 AI 提供商
+3. 网络相关的 AI 工具需要互联网连接
+4. 数据库相关的 AI 工具需要预先准备数据
 
-```bash
-curl -X POST "http://localhost:8080/api/v1/ai/generate-sql" \
-  -H "Content-Type: application/json" \
-  -d '{"description": "查询IT部门员工", "table_name": "mcp_user"}' | jq .
-```
+## 📖 相关文档
 
-#### 3. 智能查询（统一入口）
+- [完整测试指南](test/docs/AI_TOOLS_TEST_GUIDE.md)
+- [MCP AI Server](../mcp-ai-server/README.md)
+  make test # 测试
+  make clean # 清理
 
-```bash
-# 自然语言查询
-curl -X POST "http://localhost:8080/api/v1/ai/smart-query" \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "查询所有IT部门的员工"}' | jq .
-
-# 直接SQL查询
-curl -X POST "http://localhost:8080/api/v1/ai/smart-query" \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "SELECT * FROM mcp_user"}' | jq .
-```
-
-#### 4. 数据分析
-
-```bash
-curl -X POST "http://localhost:8080/api/v1/ai/analyze-data" \
-  -H "Content-Type: application/json" \
-  -d '{"data": [{"name": "张三", "salary": 8000}], "analysis_type": "summary"}' | jq .
-```
-
-#### 5. 查询+分析
-
-```bash
-curl -X POST "http://localhost:8080/api/v1/ai/query-with-analysis" \
-  -H "Content-Type: application/json" \
-  -d '{"description": "分析IT部门员工薪资", "analysis_type": "detailed"}' | jq .
-```
-
-#### 6. 智能洞察
-
-```bash
-curl -X POST "http://localhost:8080/api/v1/ai/smart-insights" \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "分析用户数据", "insight_level": "basic"}' | jq .
-```
-
-## 🛠️ 常用命令
-
-```bash
-make build     # 构建
-make run       # 运行
-make test      # 测试
-make clean     # 清理
 ```
 
 ## 🔗 依赖项目
@@ -123,3 +157,4 @@ make clean     # 清理
 ## 📄 许可证
 
 MIT License
+```

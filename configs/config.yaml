@@ -12,10 +12,13 @@ database:
     charset: "utf8mb4"
     parse_time: true
     loc: "Local"
+  # 传统查询配置
+  tables:
+    user_table: "mcp_user" # 用户表名
 
 mcp:
-  server_url: "ws://127.0.0.1:8081"
-  timeout: 120s # 增加到2分钟以支持复杂的AI工具
+  server_url: "ws://localhost:8081/ws" # MCP服务器WebSocket地址 (连接到8081端口)
+  timeout: 30s # 请求超时时间
   database:
     alias: "mysql_test"
     driver: "mysql"
