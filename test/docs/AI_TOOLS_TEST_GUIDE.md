@@ -24,13 +24,13 @@ curl -X POST "http://localhost:8080/api/v1/ai/chat" \
     "max_tokens": 50
   }' | jq .
 
-# 指定提供商和模型
+# 指定提供商和模型（请使用本机已存在模型，如 codellama:7b 或 llama3.2:1b）
 curl -X POST "http://localhost:8080/api/v1/ai/chat" \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "解释一下Go语言的并发特性",
     "provider": "ollama",
-    "model": "llama2:7b"
+    "model": "codellama:7b"
   }' | jq .
 ```
 

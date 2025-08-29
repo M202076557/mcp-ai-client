@@ -94,24 +94,39 @@ func (c *MCPClient) Initialize(ctx context.Context) error {
 
 	log.Printf("发送初始化消息: %+v", initMsg)
 
-	response, err := c.sendMessage(ctx, initMsg)
-	if err != nil {
-		return fmt.Errorf("初始化失败: %v", err)
-	}
-
-	log.Printf("收到初始化响应: %+v", response)
-
-	if response.Error != nil {
-		// 如果错误是"已经初始化"，则认为是成功的
-		if response.Error.Code == -32000 && response.Error.Message == "Already initialized" {
-			log.Println("MCP连接已经初始化，继续执行")
-			return nil
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			log.Printf("初始化重试 %d/3", attempt+1)
+			time.Sleep(time.Duration(attempt) * time.Second)
 		}
-		return fmt.Errorf("初始化错误: %d - %s", response.Error.Code, response.Error.Message)
+
+		response, err := c.sendMessage(ctx, initMsg)
+		if err != nil {
+			lastErr = fmt.Errorf("初始化失败: %v", err)
+			continue
+		}
+
+		log.Printf("收到初始化响应: %+v", response)
+
+		if response.Error != nil {
+			// 如果错误是"已经初始化"，则认为是成功的
+			if response.Error.Code == -32000 && response.Error.Message == "Already initialized" {
+				log.Println("MCP连接已经初始化，继续执行")
+				return nil
+			}
+			lastErr = fmt.Errorf("初始化错误: %d - %s", response.Error.Code, response.Error.Message)
+			continue
+		}
+
+		log.Println("MCP连接初始化成功")
+		return nil
 	}
 
-	log.Println("MCP连接初始化成功")
-	return nil
+	if lastErr == nil {
+		lastErr = fmt.Errorf("初始化失败: 未知错误")
+	}
+	return lastErr
 }
 
 // CallTool 调用MCP工具

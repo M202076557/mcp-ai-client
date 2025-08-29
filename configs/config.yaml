@@ -17,8 +17,8 @@ database:
     user_table: "mcp_user" # 用户表名
 
 mcp:
-  server_url: "ws://localhost:8081/ws" # MCP服务器WebSocket地址 (连接到8081端口)
-  timeout: 30s # 请求超时时间
+  server_url: "ws://localhost:8081/" # MCP服务器WebSocket地址 (连接到8081端口)
+  timeout: 60s # 请求超时时间（适当增加，避免长响应导致超时）
   database:
     alias: "mysql_test"
     driver: "mysql"
