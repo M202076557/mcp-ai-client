@@ -7,6 +7,9 @@ import (
 	"mcp-ai-client/internal/mcp"
 	"mcp-ai-client/internal/service"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -271,8 +274,22 @@ func (h *Handlers) MCPFileManagerHandler(c *gin.Context) {
 		"instruction": request.Instruction + " " + h.getLanguageInstruction(),
 	}
 
+	// 将相对/特殊路径重写为调用方的工作目录下的安全绝对路径，避免影响服务提供方
 	if request.TargetPath != "" {
-		args["target_path"] = request.TargetPath
+		var cleaned string = request.TargetPath
+		// 去除可能的危险前缀
+		cleaned = strings.TrimSpace(cleaned)
+		cleaned = strings.TrimPrefix(cleaned, "~")
+		cleaned = strings.ReplaceAll(cleaned, "..", "")
+		// 统一将相对路径锚定到当前进程工作目录
+		cwd, _ := os.Getwd()
+		abs := cleaned
+		if !filepath.IsAbs(cleaned) {
+			abs = filepath.Join(cwd, cleaned)
+		}
+		// 规范化
+		abs = filepath.Clean(abs)
+		args["target_path"] = abs
 	}
 	if request.OperationMode != "" {
 		args["operation_mode"] = request.OperationMode

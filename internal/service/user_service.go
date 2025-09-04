@@ -45,31 +45,58 @@ func (s *UserService) GetAllUsers() ([]User, error) {
 		return nil, fmt.Errorf("查询用户失败: %v", err)
 	}
 
-	// 转换数据格式
+	// 转换数据格式（兼容 MySQL 返回的多种类型：int64、[]uint8、string 等）
 	users := make([]User, 0, len(data))
 	for _, row := range data {
 		user := User{}
-		if id, ok := row["id"].(int64); ok {
-			user.ID = int(id)
+		// ID
+		if id64, ok := row["id"].(int64); ok {
+			user.ID = int(id64)
+		} else if b, ok := row["id"].([]uint8); ok {
+			if s := string(b); s != "" {
+				if v, err := strconv.Atoi(s); err == nil {
+					user.ID = v
+				}
+			}
 		}
+		// Name
 		if name, ok := row["name"].(string); ok {
 			user.Name = name
+		} else if b, ok := row["name"].([]uint8); ok {
+			user.Name = string(b)
 		}
+		// Email
 		if email, ok := row["email"].(string); ok {
 			user.Email = email
+		} else if b, ok := row["email"].([]uint8); ok {
+			user.Email = string(b)
 		}
-		if department, ok := row["department"].(string); ok {
-			user.Department = department
+		// Department
+		if d, ok := row["department"].(string); ok {
+			user.Department = d
+		} else if b, ok := row["department"].([]uint8); ok {
+			user.Department = string(b)
 		}
-		if age, ok := row["age"].(int64); ok {
-			user.Age = int(age)
+		// Age
+		if age64, ok := row["age"].(int64); ok {
+			user.Age = int(age64)
+		} else if b, ok := row["age"].([]uint8); ok {
+			if s := string(b); s != "" {
+				if v, err := strconv.Atoi(s); err == nil {
+					user.Age = v
+				}
+			}
 		}
-		if salary, ok := row["salary"].([]uint8); ok {
-			// MySQL DECIMAL类型返回的是[]uint8，需要转换为字符串再转为float64
-			if salaryStr := string(salary); salaryStr != "" {
+		// Salary (DECIMAL 常为 []uint8 或 string)
+		if b, ok := row["salary"].([]uint8); ok {
+			if salaryStr := string(b); salaryStr != "" {
 				if salaryFloat, err := strconv.ParseFloat(salaryStr, 64); err == nil {
 					user.Salary = salaryFloat
 				}
+			}
+		} else if s, ok := row["salary"].(string); ok {
+			if salaryFloat, err := strconv.ParseFloat(s, 64); err == nil {
+				user.Salary = salaryFloat
 			}
 		}
 		users = append(users, user)

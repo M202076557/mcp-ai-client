@@ -129,8 +129,6 @@ curl -X POST "http://localhost:8080/api/v1/ai/query-with-analysis" \
 
 ## 项目架构说明
 
-### 简化后的功能结构
-
 本项目已简化为核心功能，专注于AI增强工具和基础数据库查询：
 
 **AI增强工具（5个）**：
